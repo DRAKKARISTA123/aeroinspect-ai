@@ -36,7 +36,7 @@ st.sidebar.image("https://img.icons8.com/color/96/airplane-tail.png", width=64)
 st.sidebar.title("Fleet & MRO Parameters")
 
 # Enter your Roboflow API Key here (or set it as a Streamlit Secret)
-ROBOFLOW_API_KEY = st.sidebar.text_input("Roboflow API Key:", value="YOUR_API_KEY_HERE", type="password")
+ROBOFLOW_API_KEY = st.sidebar.text_input("Roboflow API Key:", value="26JC1OEUbjS0rV3JZTxM", type="password")
 
 engine_model = st.sidebar.selectbox(
     "Target Powerplant:",
