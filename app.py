@@ -4,10 +4,9 @@ import numpy as np
 import json
 import time
 import math
-import tempfile
-import os
 import hashlib
-from inference_sdk import InferenceHTTPClient
+import requests
+import io
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -87,7 +86,7 @@ measurement_mode = st.sidebar.radio(
     ["Simulated (Deterministic)", "Manual Field Input (Micrometer/Gauge)"]
 )
 
-user_depth, user_radius, user_length = None, None, None
+user_depth, user_radius, user_length = 0.25, 0.25, 2.50
 
 if measurement_mode == "Manual Field Input (Micrometer/Gauge)":
     user_depth = st.sidebar.number_input("Measured Defect Depth (d) [mm]:", min_value=0.05, max_value=3.00, value=0.25, step=0.05)
@@ -110,28 +109,28 @@ def run_roboflow_inspection(image, api_key, thresh, m_mode, manual_d, manual_r, 
     draw = ImageDraw.Draw(draw_img)
     width, height = image.size
 
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-        image.save(tmp.name)
-        tmp_path = tmp.name
+    # Convert image to bytes for REST API
+    buffered = io.BytesIO()
+    image.save(buffered, format="JPEG")
+    img_bytes = buffered.getvalue()
 
     raw_predictions = []
     api_success = False
 
     if api_key:
         try:
-            client = InferenceHTTPClient(
-                api_url="https://detect.roboflow.com",
-                api_key=api_key
+            url = f"https://detect.roboflow.com/partes-de-motor/5?api_key={api_key}&confidence={int(thresh*100)}"
+            response = requests.post(
+                url,
+                files={"file": ("image.jpg", img_bytes, "image/jpeg")},
+                timeout=10
             )
-            result = client.infer(tmp_path, model_id="partes-de-motor/5")
-            raw_preds = result.get("predictions", [])
-            raw_predictions = [p for p in raw_preds if p.get("confidence", 0) >= thresh]
-            api_success = True
+            if response.status_code == 200:
+                result = response.json()
+                raw_predictions = result.get("predictions", [])
+                api_success = True
         except Exception as e:
-            st.warning(f"Could not connect to Roboflow API: {e}")
-
-    if os.path.exists(tmp_path):
-        os.remove(tmp_path)
+            st.warning(f"Could not connect to Roboflow REST API: {e}")
 
     detections_data = []
 
@@ -154,7 +153,7 @@ def run_roboflow_inspection(image, api_key, thresh, m_mode, manual_d, manual_r, 
                 rad_mm = manual_r
                 length_mm = manual_l
             else:
-                # DETERMINISTIC MATH: Hash of label + box specs
+                # DETERMINISTIC MATH: Hash of label + coordinates (never random!)
                 seed_string = f"{label}_{x}_{y}_{w}_{h}"
                 hash_val = int(hashlib.md5(seed_string.encode()).hexdigest(), 16)
                 
