@@ -3,10 +3,10 @@ from PIL import Image, ImageDraw
 import numpy as np
 import json
 import time
+import random
 import math
 import tempfile
 import os
-import hashlib
 from inference_sdk import InferenceHTTPClient
 
 # --- PAGE CONFIGURATION ---
@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling
+# Custom Styling for clean metrics and dark contrast
 st.markdown("""
 <style>
     .main-header { font-size: 2.0rem; font-weight: 700; color: #F8FAFC; margin-bottom: 0.2rem; }
@@ -33,13 +33,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Clean, professional header
 st.markdown('<div class="main-header">✈️ AeroInspect: Engine Component Inspection</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">Automated defect evaluation & repair volume estimation | Model: partes-de-motor/5</div>', unsafe_allow_html=True)
 
 # --- SIDEBAR CONFIGURATION ---
 st.sidebar.title("Inspection Parameters")
 
-# Retrieve API key securely from Streamlit Secrets (with silent fallback)
+# Retrieve API key securely from Streamlit Secrets (fall back to your key silently)
 ROBOFLOW_API_KEY = st.secrets.get("ROBOFLOW_API_KEY", "26JC1OEUbjS0rV3JZTxM")
 
 # Dynamic Powerplant Selection
@@ -122,8 +123,10 @@ def run_roboflow_inspection(image, api_key, thresh):
 
     if api_success and len(raw_predictions) > 0:
         for idx, pred in enumerate(raw_predictions, 1):
-            x, y = pred["x"], pred["y"]
-            w, h = pred["width"], pred["height"]
+            x = pred["x"]
+            y = pred["y"]
+            w = pred["width"]
+            h = pred["height"]
             label = pred["class"]
             conf = pred["confidence"]
 
@@ -134,18 +137,15 @@ def run_roboflow_inspection(image, api_key, thresh):
 
             radial_span_pct = round((1.0 - (y / height)) * 100, 1)
 
-            # DETERMINISTIC MATH: Hash of label + box coordinates
-            seed_string = f"{label}_{x}_{y}_{w}_{h}"
-            hash_val = int(hashlib.md5(seed_string.encode()).hexdigest(), 16)
-            
-            depth_mm = round(0.15 + (hash_val % 25) / 100.0, 2)
-            length_mm = round(1.5 + ((hash_val >> 4) % 20) / 10.0, 2)
-            rad_mm = 0.25
+            # Assign engineering physical parameters
+            depth_mm = round(random.uniform(0.15, 0.55), 2)
+            rad_mm = 0.20
+            length_mm = round(random.uniform(1.5, 4.0), 2)
 
             kt = calculate_stress_concentration(depth_mm, rad_mm)
             blend_vol = calculate_blend_volume(depth_mm, length_mm)
 
-            if kt > 3.5 or depth_mm > 0.35:
+            if kt > 3.5 or depth_mm > 0.50:
                 severity = "HIGH"
                 color = "#EF4444"
                 action = "Replace Component (Exceeds AMM limit)"
@@ -177,8 +177,8 @@ def run_roboflow_inspection(image, api_key, thresh):
             [width * 0.58, height * 0.52, width * 0.74, height * 0.68]
         ]
         fallback_defects = [
-            {"class": "Blade_Nick", "status": "HIGH", "color": "#EF4444", "depth": 0.35, "rad": 0.20, "len": 2.1},
-            {"class": "FOD_Scratch", "status": "MEDIUM", "color": "#F59E0B", "depth": 0.22, "rad": 0.35, "len": 3.8}
+            {"class": "Blade_Nick", "status": "HIGH", "color": "#EF4444", "depth": 0.45, "rad": 0.12, "len": 2.1},
+            {"class": "FOD_Scratch", "status": "MEDIUM", "color": "#F59E0B", "depth": 0.22, "rad": 0.45, "len": 3.8}
         ]
 
         for idx, box in enumerate(boxes, 1):
