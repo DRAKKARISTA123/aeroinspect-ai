@@ -7,6 +7,7 @@ import math
 import hashlib
 import requests
 import io
+import cv2
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -38,7 +39,7 @@ st.markdown('<div class="sub-header">Automated defect evaluation & repair volume
 # --- SIDEBAR CONFIGURATION ---
 st.sidebar.title("Inspection Parameters")
 
-# Retrieve API key securely from Streamlit Secrets (fallback silently)
+# Retrieve API key securely from Streamlit Secrets or fall back to your provided key
 ROBOFLOW_API_KEY = st.secrets.get("ROBOFLOW_API_KEY", "26JC1OEUbjS0rV3JZTxM")
 
 # Dynamic Powerplant Selection
@@ -79,6 +80,17 @@ confidence_thresh = st.sidebar.slider(
 )
 
 st.sidebar.markdown("---")
+st.sidebar.title("Advanced Vision Tools")
+
+enable_clahe = st.sidebar.checkbox("⚡ Apply CLAHE Contrast Enhancement", value=False)
+enable_zoom = st.sidebar.checkbox("🔍 Enable Precision Magnifier", value=False)
+
+if enable_zoom:
+    zoom_factor = st.sidebar.slider("Magnification Level:", 2, 5, 3)
+    crop_center_x = st.sidebar.slider("Zoom Center X (%):", 0, 100, 50)
+    crop_center_y = st.sidebar.slider("Zoom Center Y (%):", 0, 100, 50)
+
+st.sidebar.markdown("---")
 st.sidebar.title("Measurement Inputs")
 
 measurement_mode = st.sidebar.radio(
@@ -92,6 +104,37 @@ if measurement_mode == "Manual Field Input (Micrometer/Gauge)":
     user_depth = st.sidebar.number_input("Measured Defect Depth (d) [mm]:", min_value=0.05, max_value=3.00, value=0.25, step=0.05)
     user_radius = st.sidebar.number_input("Notch Root Radius (r) [mm]:", min_value=0.05, max_value=2.00, value=0.25, step=0.05)
     user_length = st.sidebar.number_input("Measured Defect Length (l) [mm]:", min_value=0.50, max_value=20.00, value=2.50, step=0.50)
+
+# --- IMAGE PROCESSING UTILITIES ---
+def apply_clahe_enhancement(pil_image):
+    """Enhances shadow contrast and suppresses glare on metallic engine components."""
+    img_np = np.array(pil_image)
+    lab = cv2.cvtColor(img_np, cv2.COLOR_RGB2LAB)
+    l_channel, a_channel, b_channel = cv2.split(lab)
+    
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    cl = clahe.apply(l_channel)
+    
+    enhanced_lab = cv2.merge((cl, a_channel, b_channel))
+    enhanced_rgb = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2RGB)
+    return Image.fromarray(enhanced_rgb)
+
+def crop_magnifier(pil_image, zoom_lvl, center_x_pct, center_y_pct):
+    """Crops and magnifies a specific region of interest."""
+    w, h = pil_image.size
+    cx = int((center_x_pct / 100.0) * w)
+    cy = int((center_y_pct / 100.0) * h)
+    
+    crop_w = int(w / zoom_lvl)
+    crop_h = int(h / zoom_lvl)
+    
+    x1 = max(0, cx - (crop_w // 2))
+    y1 = max(0, cy - (crop_h // 2))
+    x2 = min(w, x1 + crop_w)
+    y2 = min(h, y1 + crop_h)
+    
+    cropped = pil_image.crop((x1, y1, x2, y2))
+    return cropped.resize((w, h), Image.Resampling.LANCZOS)
 
 # --- MATH ENGINE ---
 def calculate_stress_concentration(depth_mm, radius_mm):
@@ -153,7 +196,7 @@ def run_roboflow_inspection(image, api_key, thresh, m_mode, manual_d, manual_r, 
                 rad_mm = manual_r
                 length_mm = manual_l
             else:
-                # DETERMINISTIC MATH: Hash of label + coordinates (never random!)
+                # DETERMINISTIC MATH: Hash of label + coordinates
                 seed_string = f"{label}_{x}_{y}_{w}_{h}"
                 hash_val = int(hashlib.md5(seed_string.encode()).hexdigest(), 16)
                 
@@ -238,15 +281,28 @@ with col1:
     st.subheader("Source Image")
     uploaded_file = st.file_uploader("Select Photo (JPG / PNG):", type=["jpg", "jpeg", "png"])
     if uploaded_file is not None:
-        image = Image.open(uploaded_file).convert("RGB")
-        st.image(image, caption="Uploaded File", use_container_width=True)
+        raw_image = Image.open(uploaded_file).convert("RGB")
+        
+        # Pre-process with CLAHE if requested
+        if enable_clahe:
+            proc_image = apply_clahe_enhancement(raw_image)
+            st.caption("⚡ CLAHE Contrast Enhancement Applied")
+        else:
+            proc_image = raw_image.copy()
+
+        # Pre-process with Magnifier Zoom if requested
+        if enable_zoom:
+            proc_image = crop_magnifier(proc_image, zoom_factor, crop_center_x, crop_center_y)
+            st.caption(f"🔍 Precision Magnifier Active ({zoom_factor}x)")
+
+        st.image(proc_image, caption="Pre-processed Inspection Photo", use_container_width=True)
 
 with col2:
     st.subheader("Model Detections")
     if uploaded_file is not None:
         with st.spinner("Analyzing image and calculating parameters..."):
             annotated_img, detections = run_roboflow_inspection(
-                image, ROBOFLOW_API_KEY, confidence_thresh,
+                proc_image, ROBOFLOW_API_KEY, confidence_thresh,
                 measurement_mode, user_depth, user_radius, user_length
             )
             st.image(annotated_img, caption="Component Overlay", use_container_width=True)
@@ -280,6 +336,7 @@ if uploaded_file is not None:
         "inspection_module": inspection_module,
         "model_id": "partes-de-motor/5",
         "measurement_mode": measurement_mode,
+        "clahe_applied": enable_clahe,
         "findings": detections
     }
 
