@@ -38,6 +38,7 @@ st.markdown('<div class="sub-header">Automated defect evaluation & repair volume
 # --- SIDEBAR CONFIGURATION ---
 st.sidebar.title("Inspection Parameters")
 
+# Active Roboflow API Key
 ROBOFLOW_API_KEY = st.secrets.get("ROBOFLOW_API_KEY", "26JC1OEUbjS0rV3JZTxM")
 
 # Dynamic Powerplant Selection
@@ -78,15 +79,9 @@ confidence_thresh = st.sidebar.slider(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.title("Advanced Vision Tools")
+st.sidebar.title("Advanced Vision Options")
 
 enable_contrast = st.sidebar.checkbox("⚡ Apply High-Contrast Enhancement", value=False)
-enable_zoom = st.sidebar.checkbox("🔍 Enable Precision Magnifier", value=False)
-
-if enable_zoom:
-    zoom_factor = st.sidebar.slider("Magnification Level:", 2, 5, 3)
-    crop_center_x = st.sidebar.slider("Zoom Center X (%):", 0, 100, 50)
-    crop_center_y = st.sidebar.slider("Zoom Center Y (%):", 0, 100, 50)
 
 st.sidebar.markdown("---")
 st.sidebar.title("Measurement Inputs")
@@ -103,28 +98,11 @@ if measurement_mode == "Manual Field Input (Micrometer/Gauge)":
     user_radius = st.sidebar.number_input("Notch Root Radius (r) [mm]:", min_value=0.05, max_value=2.00, value=0.25, step=0.05)
     user_length = st.sidebar.number_input("Measured Defect Length (l) [mm]:", min_value=0.50, max_value=20.00, value=2.50, step=0.50)
 
-# --- PURE PIL IMAGE PROCESSING UTILITIES ---
+# --- IMAGE PROCESSING UTILITIES ---
 def apply_contrast_enhancement(pil_image):
-    """Boosts image contrast using pure Pillow to highlight subtle metal scratches."""
+    """Boosts image contrast using native Pillow."""
     enhancer = ImageEnhance.Contrast(pil_image)
     return enhancer.enhance(1.6)
-
-def crop_magnifier(pil_image, zoom_lvl, center_x_pct, center_y_pct):
-    """Crops and magnifies a specific region of interest."""
-    w, h = pil_image.size
-    cx = int((center_x_pct / 100.0) * w)
-    cy = int((center_y_pct / 100.0) * h)
-    
-    crop_w = int(w / zoom_lvl)
-    crop_h = int(h / zoom_lvl)
-    
-    x1 = max(0, cx - (crop_w // 2))
-    y1 = max(0, cy - (crop_h // 2))
-    x2 = min(w, x1 + crop_w)
-    y2 = min(h, y1 + crop_h)
-    
-    cropped = pil_image.crop((x1, y1, x2, y2))
-    return cropped.resize((w, h), Image.Resampling.LANCZOS)
 
 # --- MATH ENGINE ---
 def calculate_stress_concentration(depth_mm, radius_mm):
@@ -162,7 +140,7 @@ def run_roboflow_inspection(image, api_key, thresh, m_mode, manual_d, manual_r, 
                 raw_predictions = result.get("predictions", [])
                 api_success = True
         except Exception as e:
-            st.warning(f"Could not connect to Roboflow REST API: {e}")
+            st.warning(f"Could not connect to Roboflow API: {e}")
 
     detections_data = []
 
@@ -221,6 +199,7 @@ def run_roboflow_inspection(image, api_key, thresh, m_mode, manual_d, manual_r, 
                 "Recommended Action": action
             })
     else:
+        # Fallback simulated predictions if model returns 0 items or API key fails
         boxes = [
             [width * 0.22, height * 0.28, width * 0.38, height * 0.44],
             [width * 0.58, height * 0.52, width * 0.74, height * 0.68]
@@ -272,25 +251,21 @@ with col1:
         
         if enable_contrast:
             proc_image = apply_contrast_enhancement(raw_image)
-            st.caption("⚡ High-Contrast Enhancement Applied")
+            st.caption("⚡ High-Contrast Enhancement Active")
         else:
             proc_image = raw_image.copy()
 
-        if enable_zoom:
-            proc_image = crop_magnifier(proc_image, zoom_factor, crop_center_x, crop_center_y)
-            st.caption(f"🔍 Precision Magnifier Active ({zoom_factor}x)")
-
-        st.image(proc_image, caption="Pre-processed Inspection Photo", use_container_width=True)
+        st.image(proc_image, caption="Uploaded Inspection Image", use_container_width=True)
 
 with col2:
     st.subheader("Model Detections")
     if uploaded_file is not None:
-        with st.spinner("Analyzing image and calculating parameters..."):
+        with st.spinner("Connecting to Roboflow and analyzing image..."):
             annotated_img, detections = run_roboflow_inspection(
                 proc_image, ROBOFLOW_API_KEY, confidence_thresh,
                 measurement_mode, user_depth, user_radius, user_length
             )
-            st.image(annotated_img, caption="Component Overlay", use_container_width=True)
+            st.image(annotated_img, caption="Detected Components Overlay", use_container_width=True)
 
 # --- REPORT & LOGS ---
 if uploaded_file is not None:
@@ -320,6 +295,7 @@ if uploaded_file is not None:
         "engine_model": engine_model,
         "inspection_module": inspection_module,
         "model_id": "partes-de-motor/5",
+        "api_key_used": ROBOFLOW_API_KEY[:4] + "...." + ROBOFLOW_API_KEY[-4:],
         "measurement_mode": measurement_mode,
         "contrast_applied": enable_contrast,
         "findings": detections
