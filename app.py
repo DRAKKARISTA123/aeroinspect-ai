@@ -3,10 +3,10 @@ from PIL import Image, ImageDraw
 import numpy as np
 import json
 import time
-import random
 import math
 import tempfile
 import os
+import hashlib
 from inference_sdk import InferenceHTTPClient
 
 # --- PAGE CONFIGURATION ---
@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling for clean metrics and dark contrast
+# Custom Styling
 st.markdown("""
 <style>
     .main-header { font-size: 2.0rem; font-weight: 700; color: #F8FAFC; margin-bottom: 0.2rem; }
@@ -33,14 +33,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Clean, professional header
 st.markdown('<div class="main-header">✈️ AeroInspect: Engine Component Inspection</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">Automated defect evaluation & repair volume estimation | Model: partes-de-motor/5</div>', unsafe_allow_html=True)
 
 # --- SIDEBAR CONFIGURATION ---
 st.sidebar.title("Inspection Parameters")
 
-# Retrieve API key securely from Streamlit Secrets (fall back to your key silently)
+# Retrieve API key securely from Streamlit Secrets (fallback silently)
 ROBOFLOW_API_KEY = st.secrets.get("ROBOFLOW_API_KEY", "26JC1OEUbjS0rV3JZTxM")
 
 # Dynamic Powerplant Selection
@@ -80,6 +79,21 @@ confidence_thresh = st.sidebar.slider(
     min_value=0.10, max_value=1.00, value=0.35, step=0.05
 )
 
+st.sidebar.markdown("---")
+st.sidebar.title("Measurement Inputs")
+
+measurement_mode = st.sidebar.radio(
+    "Defect Dimension Source:",
+    ["Simulated (Deterministic)", "Manual Field Input (Micrometer/Gauge)"]
+)
+
+user_depth, user_radius, user_length = None, None, None
+
+if measurement_mode == "Manual Field Input (Micrometer/Gauge)":
+    user_depth = st.sidebar.number_input("Measured Defect Depth (d) [mm]:", min_value=0.05, max_value=3.00, value=0.25, step=0.05)
+    user_radius = st.sidebar.number_input("Notch Root Radius (r) [mm]:", min_value=0.05, max_value=2.00, value=0.25, step=0.05)
+    user_length = st.sidebar.number_input("Measured Defect Length (l) [mm]:", min_value=0.50, max_value=20.00, value=2.50, step=0.50)
+
 # --- MATH ENGINE ---
 def calculate_stress_concentration(depth_mm, radius_mm):
     if radius_mm <= 0:
@@ -91,7 +105,7 @@ def calculate_blend_volume(depth_mm, length_mm):
     return round(0.5 * depth_mm * width_mm * length_mm, 2)
 
 # --- INFERENCE PIPELINE ---
-def run_roboflow_inspection(image, api_key, thresh):
+def run_roboflow_inspection(image, api_key, thresh, m_mode, manual_d, manual_r, manual_l):
     draw_img = image.copy()
     draw = ImageDraw.Draw(draw_img)
     width, height = image.size
@@ -123,10 +137,8 @@ def run_roboflow_inspection(image, api_key, thresh):
 
     if api_success and len(raw_predictions) > 0:
         for idx, pred in enumerate(raw_predictions, 1):
-            x = pred["x"]
-            y = pred["y"]
-            w = pred["width"]
-            h = pred["height"]
+            x, y = pred["x"], pred["y"]
+            w, h = pred["width"], pred["height"]
             label = pred["class"]
             conf = pred["confidence"]
 
@@ -137,15 +149,23 @@ def run_roboflow_inspection(image, api_key, thresh):
 
             radial_span_pct = round((1.0 - (y / height)) * 100, 1)
 
-            # Assign engineering physical parameters
-            depth_mm = round(random.uniform(0.15, 0.55), 2)
-            rad_mm = 0.20
-            length_mm = round(random.uniform(1.5, 4.0), 2)
+            if m_mode == "Manual Field Input (Micrometer/Gauge)":
+                depth_mm = manual_d
+                rad_mm = manual_r
+                length_mm = manual_l
+            else:
+                # DETERMINISTIC MATH: Hash of label + box specs
+                seed_string = f"{label}_{x}_{y}_{w}_{h}"
+                hash_val = int(hashlib.md5(seed_string.encode()).hexdigest(), 16)
+                
+                depth_mm = round(0.15 + (hash_val % 25) / 100.0, 2)
+                length_mm = round(1.5 + ((hash_val >> 4) % 20) / 10.0, 2)
+                rad_mm = 0.25
 
             kt = calculate_stress_concentration(depth_mm, rad_mm)
             blend_vol = calculate_blend_volume(depth_mm, length_mm)
 
-            if kt > 3.5 or depth_mm > 0.50:
+            if kt > 3.5 or depth_mm > 0.35:
                 severity = "HIGH"
                 color = "#EF4444"
                 action = "Replace Component (Exceeds AMM limit)"
@@ -177,8 +197,8 @@ def run_roboflow_inspection(image, api_key, thresh):
             [width * 0.58, height * 0.52, width * 0.74, height * 0.68]
         ]
         fallback_defects = [
-            {"class": "Blade_Nick", "status": "HIGH", "color": "#EF4444", "depth": 0.45, "rad": 0.12, "len": 2.1},
-            {"class": "FOD_Scratch", "status": "MEDIUM", "color": "#F59E0B", "depth": 0.22, "rad": 0.45, "len": 3.8}
+            {"class": "Blade_Nick", "status": "HIGH", "color": "#EF4444", "depth": 0.35, "rad": 0.20, "len": 2.1},
+            {"class": "FOD_Scratch", "status": "MEDIUM", "color": "#F59E0B", "depth": 0.22, "rad": 0.35, "len": 3.8}
         ]
 
         for idx, box in enumerate(boxes, 1):
@@ -187,8 +207,13 @@ def run_roboflow_inspection(image, api_key, thresh):
             center_y = (y1 + y2) / 2
             radial_span_pct = round((1.0 - (center_y / height)) * 100, 1)
 
-            kt = calculate_stress_concentration(item["depth"], item["rad"])
-            blend_vol = calculate_blend_volume(item["depth"], item["len"])
+            if m_mode == "Manual Field Input (Micrometer/Gauge)":
+                d_val, r_val, l_val = manual_d, manual_r, manual_l
+            else:
+                d_val, r_val, l_val = item["depth"], item["rad"], item["len"]
+
+            kt = calculate_stress_concentration(d_val, r_val)
+            blend_vol = calculate_blend_volume(d_val, l_val)
 
             action = "Replace Component" if kt > 3.5 else f"Blend Repair (~{blend_vol} mm³)"
 
@@ -221,7 +246,10 @@ with col2:
     st.subheader("Model Detections")
     if uploaded_file is not None:
         with st.spinner("Analyzing image and calculating parameters..."):
-            annotated_img, detections = run_roboflow_inspection(image, ROBOFLOW_API_KEY, confidence_thresh)
+            annotated_img, detections = run_roboflow_inspection(
+                image, ROBOFLOW_API_KEY, confidence_thresh,
+                measurement_mode, user_depth, user_radius, user_length
+            )
             st.image(annotated_img, caption="Component Overlay", use_container_width=True)
 
 # --- REPORT & LOGS ---
@@ -252,6 +280,7 @@ if uploaded_file is not None:
         "engine_model": engine_model,
         "inspection_module": inspection_module,
         "model_id": "partes-de-motor/5",
+        "measurement_mode": measurement_mode,
         "findings": detections
     }
 
