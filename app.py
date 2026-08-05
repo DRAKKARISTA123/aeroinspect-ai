@@ -39,7 +39,7 @@ st.markdown('<div class="sub-header">Automated defect evaluation & repair volume
 # --- SIDEBAR CONFIGURATION ---
 st.sidebar.title("Inspection Parameters")
 
-# Retrieve API key securely from Streamlit Secrets (fallback silently)
+# Retrieve API key securely from Streamlit Secrets (with silent fallback)
 ROBOFLOW_API_KEY = st.secrets.get("ROBOFLOW_API_KEY", "26JC1OEUbjS0rV3JZTxM")
 
 # Dynamic Powerplant Selection
@@ -134,7 +134,7 @@ def run_roboflow_inspection(image, api_key, thresh):
 
             radial_span_pct = round((1.0 - (y / height)) * 100, 1)
 
-            # DETERMINISTIC MATH: Hash of label + box specs (never changes on rerun!)
+            # DETERMINISTIC MATH: Hash of label + box coordinates
             seed_string = f"{label}_{x}_{y}_{w}_{h}"
             hash_val = int(hashlib.md5(seed_string.encode()).hexdigest(), 16)
             
@@ -197,3 +197,67 @@ def run_roboflow_inspection(image, api_key, thresh):
 
             detections_data.append({
                 "ID": f"DET-{idx:03d}",
+                "Detected Part": item["class"],
+                "Position": f"{radial_span_pct}% Height",
+                "Stress Factor (Kt)": kt,
+                "Est. Blend Vol (mm³)": blend_vol,
+                "Status": item["status"],
+                "Recommended Action": action
+            })
+
+    return draw_img, detections_data
+
+# --- UI LAYOUT ---
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Source Image")
+    uploaded_file = st.file_uploader("Select Photo (JPG / PNG):", type=["jpg", "jpeg", "png"])
+    if uploaded_file is not None:
+        image = Image.open(uploaded_file).convert("RGB")
+        st.image(image, caption="Uploaded File", use_container_width=True)
+
+with col2:
+    st.subheader("Model Detections")
+    if uploaded_file is not None:
+        with st.spinner("Analyzing image and calculating parameters..."):
+            annotated_img, detections = run_roboflow_inspection(image, ROBOFLOW_API_KEY, confidence_thresh)
+            st.image(annotated_img, caption="Component Overlay", use_container_width=True)
+
+# --- REPORT & LOGS ---
+if uploaded_file is not None:
+    st.markdown("---")
+    st.subheader("Inspection Summary")
+
+    num_defects = len(detections)
+    high_risk_count = sum(1 for d in detections if d["Status"] == "HIGH")
+    max_kt = max([d["Stress Factor (Kt)"] for d in detections]) if detections else 1.0
+
+    if high_risk_count > 0 or max_kt > 3.2:
+        st.error(f"⚠️ **ATTENTION REQUIRED**: {high_risk_count} high-risk finding(s) flagged. Peak Kt = {max_kt}.")
+    else:
+        st.success("✅ **SERVICEABLE**: All components within allowable operational limits.")
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Selected Engine", engine_model)
+    m2.metric("Inspection Zone", inspection_module)
+    m3.metric("Items Found", num_defects)
+    m4.metric("Max Stress Factor (Kt)", max_kt)
+
+    st.markdown("##### Detailed Log")
+    st.table(detections)
+
+    mro_telemetry = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "engine_model": engine_model,
+        "inspection_module": inspection_module,
+        "model_id": "partes-de-motor/5",
+        "findings": detections
+    }
+
+    st.download_button(
+        label="📥 Download Technical Inspection Log (JSON)",
+        data=json.dumps(mro_telemetry, indent=2),
+        file_name=f"engine_inspection_{int(time.time())}.json",
+        mime="application/json"
+    )
