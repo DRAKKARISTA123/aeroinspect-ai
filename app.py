@@ -33,14 +33,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-header">✈️ AeroInspect: Aircraft Surface Damage Inspection</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Automated skin defect evaluation & repair volume estimation | Model: aircraft-surface-damage</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Automated skin defect evaluation & repair volume estimation | Model: aircraft-surface-damage (Lemi Debele)</div>', unsafe_allow_html=True)
 
 # --- SIDEBAR CONFIGURATION ---
 st.sidebar.title("Inspection Parameters")
 
-# Active Roboflow API Key & Model Configuration
+# Active Roboflow API Key & Model Endpoint (Targeting Lemi Debele's dataset)
 ROBOFLOW_API_KEY = st.secrets.get("ROBOFLOW_API_KEY", "26JC1OEUbjS0rV3JZTxM")
-MODEL_ENDPOINT = "aircraft-surface-damage/1"  # Updated dataset endpoint
+MODEL_ENDPOINT = "aircraft-surface-damage/3"  # Version 3 of the Lemi Debele dataset
 
 # Dynamic Aircraft Selection
 aircraft_options = [
@@ -177,7 +177,7 @@ def run_roboflow_inspection(image, api_key, thresh, m_mode, manual_d, manual_r, 
             if kt > 3.5 or depth_mm > 0.35:
                 severity = "HIGH"
                 color = "#EF4444"
-                action = "Structural Patch / Doubler Required (Exceeds SRM limit)"
+                action = "Structural Doubler / Patch Required (Exceeds SRM limit)"
             elif depth_mm > 0.25:
                 severity = "MEDIUM"
                 color = "#F59E0B"
@@ -206,8 +206,8 @@ def run_roboflow_inspection(image, api_key, thresh, m_mode, manual_d, manual_r, 
             [width * 0.58, height * 0.52, width * 0.74, height * 0.68]
         ]
         fallback_defects = [
-            {"class": "Dent", "status": "HIGH", "color": "#EF4444", "depth": 0.35, "rad": 0.20, "len": 2.1},
-            {"class": "Scratch", "status": "MEDIUM", "color": "#F59E0B", "depth": 0.22, "rad": 0.35, "len": 3.8}
+            {"class": "Surface_Crack", "status": "HIGH", "color": "#EF4444", "depth": 0.35, "rad": 0.20, "len": 2.1},
+            {"class": "Corrosion_Pitting", "status": "MEDIUM", "color": "#F59E0B", "depth": 0.22, "rad": 0.35, "len": 3.8}
         ]
 
         for idx, box in enumerate(boxes, 1):
@@ -256,7 +256,7 @@ with col1:
         else:
             proc_image = raw_image.copy()
 
-        st.image(proc_image, caption="Uploaded Inspection Image", use_container_width=True)
+        st.image(proc_image, caption="Uploaded Surface Inspection Image", use_container_width=True)
 
 with col2:
     st.subheader("Model Detections")
