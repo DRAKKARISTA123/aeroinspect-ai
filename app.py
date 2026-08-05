@@ -39,7 +39,6 @@ st.markdown('<div class="sub-header">Automated defect evaluation & repair volume
 # --- SIDEBAR CONFIGURATION ---
 st.sidebar.title("Inspection Parameters")
 
-# Retrieve API key securely from Streamlit Secrets or fall back to your provided key
 ROBOFLOW_API_KEY = st.secrets.get("ROBOFLOW_API_KEY", "26JC1OEUbjS0rV3JZTxM")
 
 # Dynamic Powerplant Selection
@@ -107,7 +106,6 @@ if measurement_mode == "Manual Field Input (Micrometer/Gauge)":
 
 # --- IMAGE PROCESSING UTILITIES ---
 def apply_clahe_enhancement(pil_image):
-    """Enhances shadow contrast and suppresses glare on metallic engine components."""
     img_np = np.array(pil_image)
     lab = cv2.cvtColor(img_np, cv2.COLOR_RGB2LAB)
     l_channel, a_channel, b_channel = cv2.split(lab)
@@ -120,7 +118,6 @@ def apply_clahe_enhancement(pil_image):
     return Image.fromarray(enhanced_rgb)
 
 def crop_magnifier(pil_image, zoom_lvl, center_x_pct, center_y_pct):
-    """Crops and magnifies a specific region of interest."""
     w, h = pil_image.size
     cx = int((center_x_pct / 100.0) * w)
     cy = int((center_y_pct / 100.0) * h)
@@ -152,7 +149,6 @@ def run_roboflow_inspection(image, api_key, thresh, m_mode, manual_d, manual_r, 
     draw = ImageDraw.Draw(draw_img)
     width, height = image.size
 
-    # Convert image to bytes for REST API
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
     img_bytes = buffered.getvalue()
@@ -196,7 +192,6 @@ def run_roboflow_inspection(image, api_key, thresh, m_mode, manual_d, manual_r, 
                 rad_mm = manual_r
                 length_mm = manual_l
             else:
-                # DETERMINISTIC MATH: Hash of label + coordinates
                 seed_string = f"{label}_{x}_{y}_{w}_{h}"
                 hash_val = int(hashlib.md5(seed_string.encode()).hexdigest(), 16)
                 
@@ -233,7 +228,6 @@ def run_roboflow_inspection(image, api_key, thresh, m_mode, manual_d, manual_r, 
                 "Recommended Action": action
             })
     else:
-        # Fallback simulation if no objects returned above threshold
         boxes = [
             [width * 0.22, height * 0.28, width * 0.38, height * 0.44],
             [width * 0.58, height * 0.52, width * 0.74, height * 0.68]
@@ -283,14 +277,12 @@ with col1:
     if uploaded_file is not None:
         raw_image = Image.open(uploaded_file).convert("RGB")
         
-        # Pre-process with CLAHE if requested
         if enable_clahe:
             proc_image = apply_clahe_enhancement(raw_image)
             st.caption("⚡ CLAHE Contrast Enhancement Applied")
         else:
             proc_image = raw_image.copy()
 
-        # Pre-process with Magnifier Zoom if requested
         if enable_zoom:
             proc_image = crop_magnifier(proc_image, zoom_factor, crop_center_x, crop_center_y)
             st.caption(f"🔍 Precision Magnifier Active ({zoom_factor}x)")
