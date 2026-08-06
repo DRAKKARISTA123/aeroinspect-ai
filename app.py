@@ -92,7 +92,6 @@ def run_collaborative_inspection(image, api_keys):
             os.remove(tmp_path)
         return draw_img, [], "ERROR: No valid enterprise API keys provided."
 
-    # Direct REST API call loop (avoids missing system dependency crashes)
     for idx, key in enumerate(valid_keys):
         try:
             upload_url = f"https://detect.roboflow.com/partes-de-motor/5?api_key={key}"
