@@ -64,10 +64,12 @@ def calculate_blend_volume(depth_mm, length_mm):
 
 def get_thermodynamic_impact(label, kt_value, has_defect):
     label_lower = label.lower()
+    label_title = label.title()
+    
     if not has_defect:
         return {
             "Status": "SERVICEABLE",
-            "Fluid & Thermal Impact": f"Module region '{label.title()'}' identified via computer vision. Baseline aerodynamic flow normal.",
+            "Fluid & Thermal Impact": f"Module region '{label_title}' identified via computer vision. Baseline aerodynamic flow normal.",
             "Efficiency Loss": "0.0% (Nominal)",
             "Consequence": "No discrete surface anomaly logged. Module operating within design parameters."
         }
