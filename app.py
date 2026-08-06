@@ -6,7 +6,7 @@ import time
 import math
 import tempfile
 import os
-from inference_sdk import InferenceHTTPClient
+import requests
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -72,12 +72,8 @@ def calculate_blend_volume(depth_mm, length_mm):
     width_mm = depth_mm * 4.0
     return round(0.5 * depth_mm * width_mm * length_mm, 2)
 
-# --- COLLABORATIVE INFERENCE ENGINE ---
+# --- COLLABORATIVE INFERENCE ENGINE (REST API) ---
 def run_collaborative_inspection(image, api_keys):
-    """
-    Iterates through the provided enterprise API keys. 
-    Queries the Roboflow inference engine using available credentials collaboratively.
-    """
     draw_img = image.copy()
     draw = ImageDraw.Draw(draw_img)
     width, height = image.size
@@ -89,7 +85,6 @@ def run_collaborative_inspection(image, api_keys):
     raw_predictions = []
     active_key_used = None
 
-    # Filter out empty keys
     valid_keys = [k.strip() for k in api_keys if k and k.strip() != ""]
 
     if not valid_keys:
@@ -97,17 +92,18 @@ def run_collaborative_inspection(image, api_keys):
             os.remove(tmp_path)
         return draw_img, [], "ERROR: No valid enterprise API keys provided."
 
-    # Collaborative execution loop (try keys sequentially until success)
+    # Direct REST API call loop (avoids missing system dependency crashes)
     for idx, key in enumerate(valid_keys):
         try:
-            client = InferenceHTTPClient(
-                api_url="https://detect.roboflow.com",
-                api_key=key
-            )
-            result = client.infer(tmp_path, model_id="partes-de-motor/5")
-            raw_predictions = result.get("predictions", [])
-            active_key_used = f"Enterprise Key #{idx + 1}"
-            break  # Break out on successful response
+            upload_url = f"https://detect.roboflow.com/partes-de-motor/5?api_key={key}"
+            with open(tmp_path, "rb") as image_file:
+                response = requests.post(upload_url, files={"file": image_file})
+            
+            if response.status_code == 200:
+                result = response.json()
+                raw_predictions = result.get("predictions", [])
+                active_key_used = f"Enterprise Key #{idx + 1}"
+                break
         except Exception as e:
             continue
 
@@ -131,7 +127,6 @@ def run_collaborative_inspection(image, api_keys):
 
         radial_span_pct = round((1.0 - (y / height)) * 100, 1)
         
-        # Estimate depth/radius metrics based on model prediction boundaries for engineering calculation
         estimated_depth = round(h * 0.002, 2)
         estimated_radius = max(0.05, round(w * 0.001, 2))
         estimated_length = round(w * 0.02, 2)
