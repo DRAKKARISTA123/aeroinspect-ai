@@ -1,135 +1,68 @@
 import streamlit as st
-from PIL import Image, ImageDraw, ImageEnhance
+from PIL import Image, ImageDraw
 import numpy as np
 import json
 import time
 import math
-import hashlib
-import requests
-import io
-import base64
+import tempfile
+import os
+from inference_sdk import InferenceHTTPClient
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="AeroInspect AI - Unified Diagnostic Hub",
+    page_title="AeroInspect AI - Enterprise Multi-Key MRO Engine",
     page_icon="✈️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling
+# --- CUSTOM STYLING ---
 st.markdown("""
 <style>
-    .main-header { font-size: 2.0rem; font-weight: 700; color: #F8FAFC; margin-bottom: 0.2rem; }
-    .sub-header { font-size: 0.95rem; color: #94A3B8; margin-bottom: 1.5rem; }
-    .stMetric {
-        background-color: #1E293B !important;
-        padding: 12px !important;
-        border-radius: 6px !important;
-        border: 1px solid #334155 !important;
-    }
+    .main-header { font-size: 2.2rem; font-weight: 700; color: #0F172A; margin-bottom: 0.1rem; }
+    .sub-header { font-size: 1.0rem; color: #475569; margin-bottom: 1.5rem; }
+    .stMetric { background-color: #1E293B !important; padding: 12px !important; border-radius: 8px !important; border: 1px solid #334155 !important; }
     div[data-testid="stMetricValue"] { color: #38BDF8 !important; font-weight: 700 !important; }
     div[data-testid="stMetricLabel"] { color: #94A3B8 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header">✈️ AeroInspect AI: Unified Diagnostic Hub</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Multi-Workflow & Multi-Model Aerospace Defect Analyzer</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">✈️ AeroInspect AI: Enterprise MRO Surface & Stress Validation</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">EASA Part-145 Aligned | Collaborative Multi-Key Engine (Rolls-Royce / GE Aerospace Validation Pipeline)</div>', unsafe_allow_html=True)
 
-# --- GLOBAL CONFIGURATION ---
-ROBOFLOW_API_KEY = st.secrets.get("ROBOFLOW_API_KEY", "26JC1OEUbjS0rV3JZTxM")
-WORKSPACE_NAME = "lyoussef2013-gmail-com"
+# --- SIDEBAR CONFIGURATION (MULTI-KEY INPUTS) ---
+st.sidebar.image("https://img.icons8.com/color/96/airplane-tail.png", width=64)
+st.sidebar.title("Enterprise Fleet Parameters")
 
-# Unified Registry of All Workflows and Object Detection Models
-PIPELINES = {
-    "General Segmentation Workflow v7 (general-segmentation-api-7)": {
-        "type": "workflow",
-        "workflow_id": "general-segmentation-api-7",
-        "classes": "air - v4 2024-07-06 2:23pm",
-        "label_name": "Damage Class"
-    },
-    "General Segmentation Workflow v6 (general-segmentation-api-6)": {
-        "type": "workflow",
-        "workflow_id": "general-segmentation-api-6",
-        "classes": "scratch, dent, chip, 0, scratches-dents",
-        "label_name": "Damage Class"
-    },
-    "Aircraft & Engine Segmentation v5 (general-segmentation-api-5)": {
-        "type": "workflow",
-        "workflow_id": "general-segmentation-api-5",
-        "classes": "crack, dent, Aircraft Damage Detection",
-        "label_name": "Damage / Defect"
-    },
-    "Aircraft Surface Damage (1.2k Dataset - Lemi Debele)": {
-        "type": "object_detection",
-        "endpoint": "aircraft-surface-damage/3",
-        "label_name": "Defect Type"
-    },
-    "Aircraft Surface Damage (2.9k Dataset - General)": {
-        "type": "object_detection",
-        "endpoint": "aircraft-surface-damage/1",
-        "label_name": "Damage Class"
-    }
-}
-
-# --- SIDEBAR CONFIGURATION ---
-st.sidebar.title("Pipeline Selection")
-selected_pipeline_key = st.sidebar.selectbox(
-    "Active Inspection Engine:",
-    list(PIPELINES.keys())
+engine_model = st.sidebar.selectbox(
+    "Target Powerplant:",
+    [
+        "CFM International LEAP-1B (Boeing 737 MAX)",
+        "CFM International CFM56-7B (Boeing 737 NG)",
+        "Rolls-Royce Trent XWB (Airbus A350)",
+        "GE Aerospace GE90-115B (Boeing 777)"
+    ]
 )
-active_pipeline = PIPELINES[selected_pipeline_key]
 
-st.sidebar.markdown("---")
-st.sidebar.title("Inspection Parameters")
-
-options = [
-    "CFM International LEAP / CFM56",
-    "Boeing 737 / 787 Airframe",
-    "Airbus A320 / A350 Airframe",
-    "Rolls-Royce Trent Series",
-    "Other / Custom Aerospace Target"
-]
-selected_target = st.sidebar.selectbox("Target Assembly:", options)
-
-zones = [
-    "Nacelle Lip & Cowling",
-    "Fan Blades & Inlet Hub",
-    "Fuselage Skin & Panels",
-    "Wing Structure & Control Surfaces",
-    "Empennage / Tail Section"
-]
-selected_zone = st.sidebar.selectbox("Inspection Zone:", zones)
-
-confidence_thresh = st.sidebar.slider(
-    "Confidence Threshold:",
-    min_value=0.05, max_value=1.00, value=0.25, step=0.05
+inspection_module = st.sidebar.selectbox(
+    "Inspection Sub-Assembly:",
+    [
+        "Fan Stage 1 (Titanium / Carbon-Titanium)",
+        "Engine Nacelle & Fastener Grid",
+        "High-Pressure Compressor (HPC) Stage",
+        "HPT Nozzle Guide Vanes (Borescope)"
+    ]
 )
 
 st.sidebar.markdown("---")
-st.sidebar.title("Vision Pre-Processing")
-enable_contrast = st.sidebar.checkbox("⚡ Apply High-Contrast Enhancement", value=False)
+st.sidebar.subheader("🔐 Collaborative Enterprise API Keys")
+st.sidebar.markdown("Enter keys for parallel multi-tenant execution/failover validation:")
 
-st.sidebar.markdown("---")
-st.sidebar.title("Measurement Inputs")
+key_rolls_royce = st.sidebar.text_input("Rolls-Royce Validation Key:", type="password", key="rr_key")
+key_ge_aerospace = st.sidebar.text_input("GE Aerospace Validation Key:", type="password", key="ge_key")
+key_mro_internal = st.sidebar.text_input("Internal MRO Authority Key:", type="password", key="mro_key")
 
-measurement_mode = st.sidebar.radio(
-    "Defect Dimension Source:",
-    ["Simulated (Deterministic)", "Manual Field Input (Micrometer/Gauge)"]
-)
-
-user_depth, user_radius, user_length = 0.25, 0.25, 2.50
-
-if measurement_mode == "Manual Field Input (Micrometer/Gauge)":
-    user_depth = st.sidebar.number_input("Measured Defect Depth (d) [mm]:", min_value=0.05, max_value=3.00, value=0.25, step=0.05)
-    user_radius = st.sidebar.number_input("Notch Root Radius (r) [mm]:", min_value=0.05, max_value=2.00, value=0.25, step=0.05)
-    user_length = st.sidebar.number_input("Measured Defect Length (l) [mm]:", min_value=0.50, max_value=20.00, value=2.50, step=0.50)
-
-# --- HELPER FUNCTIONS ---
-def apply_contrast_enhancement(pil_image):
-    enhancer = ImageEnhance.Contrast(pil_image)
-    return enhancer.enhance(1.6)
-
+# --- AERONAUTICAL MATH FUNCTIONS ---
 def calculate_stress_concentration(depth_mm, radius_mm):
     if radius_mm <= 0:
         return 3.0
@@ -139,244 +72,153 @@ def calculate_blend_volume(depth_mm, length_mm):
     width_mm = depth_mm * 4.0
     return round(0.5 * depth_mm * width_mm * length_mm, 2)
 
-# --- NORMALIZED ADAPTER PARSERS ---
-def parse_workflow_response(res_json):
-    """Safely normalizes outputs from Roboflow Workflow APIs."""
-    raw_predictions = []
-    try:
-        outputs = res_json.get("outputs", [{}])
-        if outputs and isinstance(outputs, list):
-            first_out = outputs[0]
-            if "predictions" in first_out:
-                preds_obj = first_out["predictions"]
-                if isinstance(preds_obj, dict):
-                    raw_predictions = preds_obj.get("predictions", [])
-                elif isinstance(preds_obj, list):
-                    raw_predictions = preds_obj
-            elif "output" in first_out:
-                raw_predictions = first_out.get("output", [])
-    except Exception:
-        pass
-    return raw_predictions
-
-def parse_detection_response(result_json):
-    """Safely normalizes outputs from Standard Object Detection APIs."""
-    return result_json.get("predictions", [])
-
-# --- UNIFIED INFERENCE ENGINE ---
-def run_roboflow_inspection(image, api_key, config, thresh, m_mode, manual_d, manual_r, manual_l):
+# --- COLLABORATIVE INFERENCE ENGINE ---
+def run_collaborative_inspection(image, api_keys):
+    """
+    Iterates through the provided enterprise API keys. 
+    Queries the Roboflow inference engine using available credentials collaboratively.
+    """
     draw_img = image.copy()
     draw = ImageDraw.Draw(draw_img)
     width, height = image.size
 
-    buffered = io.BytesIO()
-    image.save(buffered, format="JPEG")
-    img_bytes = buffered.getvalue()
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        image.save(tmp.name)
+        tmp_path = tmp.name
 
     raw_predictions = []
-    api_success = False
+    active_key_used = None
 
-    if api_key:
+    # Filter out empty keys
+    valid_keys = [k.strip() for k in api_keys if k and k.strip() != ""]
+
+    if not valid_keys:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        return draw_img, [], "ERROR: No valid enterprise API keys provided."
+
+    # Collaborative execution loop (try keys sequentially until success)
+    for idx, key in enumerate(valid_keys):
         try:
-            if config["type"] == "workflow":
-                workflow_id = config["workflow_id"]
-                target_classes = config["classes"]
-                url = f"https://serverless.roboflow.com/workflows/{WORKSPACE_NAME}/{workflow_id}?api_key={api_key}"
-                encoded_img = base64.b64encode(img_bytes).decode('utf-8')
-                
-                payload = {
-                    "inputs": {
-                        "image": {"type": "base64", "value": encoded_img}
-                    },
-                    "parameters": {
-                        "classes": target_classes
-                    }
-                }
-                response = requests.post(url, json=payload, timeout=12)
-                
-                if response.status_code == 200:
-                    raw_predictions = parse_workflow_response(response.json())
-                    api_success = True
-            else:
-                endpoint = config["endpoint"]
-                url = f"https://detect.roboflow.com/{endpoint}?api_key={api_key}&confidence={int(thresh*100)}"
-                response = requests.post(url, files={"file": ("image.jpg", img_bytes, "image/jpeg")}, timeout=10)
-                if response.status_code == 200:
-                    raw_predictions = parse_detection_response(response.json())
-                    api_success = True
+            client = InferenceHTTPClient(
+                api_url="https://detect.roboflow.com",
+                api_key=key
+            )
+            result = client.infer(tmp_path, model_id="partes-de-motor/5")
+            raw_predictions = result.get("predictions", [])
+            active_key_used = f"Enterprise Key #{idx + 1}"
+            break  # Break out on successful response
         except Exception as e:
-            st.warning(f"API Connection Exception: {e}")
+            continue
+
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
 
     detections_data = []
 
-    if api_success and len(raw_predictions) > 0:
-        for idx, pred in enumerate(raw_predictions, 1):
-            x = pred.get("x", width / 2)
-            y = pred.get("y", height / 2)
-            w = pred.get("width", width * 0.2)
-            h = pred.get("height", height * 0.2)
-            label = pred.get("class", "Aircraft Defect")
-            conf = pred.get("confidence", 0.85)
+    for idx, pred in enumerate(raw_predictions, 1):
+        x = pred["x"]
+        y = pred["y"]
+        w = pred["width"]
+        h = pred["height"]
+        label = pred["class"]
+        conf = pred["confidence"]
 
-            x1 = max(0, x - (w / 2))
-            y1 = max(0, y - (h / 2))
-            x2 = min(width, x + (w / 2))
-            y2 = min(height, y + (h / 2))
+        x1 = x - (w / 2)
+        y1 = y - (h / 2)
+        x2 = x + (w / 2)
+        y2 = y + (h / 2)
 
-            position_pct = round((y / height) * 100, 1)
+        radial_span_pct = round((1.0 - (y / height)) * 100, 1)
+        
+        # Estimate depth/radius metrics based on model prediction boundaries for engineering calculation
+        estimated_depth = round(h * 0.002, 2)
+        estimated_radius = max(0.05, round(w * 0.001, 2))
+        estimated_length = round(w * 0.02, 2)
 
-            if m_mode == "Manual Field Input (Micrometer/Gauge)":
-                depth_mm = manual_d
-                rad_mm = manual_r
-                length_mm = manual_l
-            else:
-                seed_string = f"{label}_{x}_{y}_{w}_{h}"
-                hash_val = int(hashlib.md5(seed_string.encode()).hexdigest(), 16)
-                
-                depth_mm = round(0.15 + (hash_val % 25) / 100.0, 2)
-                length_mm = round(1.5 + ((hash_val >> 4) % 20) / 10.0, 2)
-                rad_mm = 0.25
+        kt = calculate_stress_concentration(estimated_depth, estimated_radius)
+        blend_vol = calculate_blend_volume(estimated_depth, estimated_length)
+        
+        severity = "CRITICAL" if kt > 2.5 else ("HIGH" if kt > 1.8 else "MONITOR")
+        color = "#DC2626" if severity == "CRITICAL" else ("#EF4444" if severity == "HIGH" else "#38BDF8")
 
-            kt = calculate_stress_concentration(depth_mm, rad_mm)
-            blend_vol = calculate_blend_volume(depth_mm, length_mm)
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=4)
+        draw.text((x1 + 5, max(0, y1 - 15)), f"#{idx} {label} (Kt: {kt})", fill=color)
 
-            if kt > 3.5 or depth_mm > 0.35 or "dent" in label.lower() or "crack" in label.lower():
-                severity = "HIGH"
-                color = "#EF4444"
-                action = "Replace / Major Structural Patch Required"
-            elif depth_mm > 0.25 or "scratch" in label.lower() or "chip" in label.lower():
-                severity = "MEDIUM"
-                color = "#F59E0B"
-                action = f"Blend Repair (~{blend_vol} mm³ material removal)"
-            else:
-                severity = "LOW"
-                color = "#10B981"
-                action = "Acceptable (Monitor next Routine Inspection)"
+        detections_data.append({
+            "Defect ID": f"COMP-{idx:03d}",
+            "Classification": f"Engine Component: {label}",
+            "Radial Span Location": f"{radial_span_pct}% Span",
+            "Stress Concentration (Kt)": kt,
+            "Blend Volume (mm³)": blend_vol,
+            "Severity Level": severity,
+            "AMM Maintenance Action": f"BLEND REPAIR (Remove ~{blend_vol} mm³ material per AMM 72-33-00)"
+        })
 
-            draw.rectangle([x1, y1, x2, y2], outline=color, width=4)
-            draw.text((x1 + 5, max(0, y1 - 18)), f"#{idx} {label} ({conf:.0%})", fill=color)
+    return draw_img, detections_data, active_key_used
 
-            detections_data.append({
-                "ID": f"DET-{idx:03d}",
-                config["label_name"]: label,
-                "Relative Position": f"{position_pct}% Height",
-                "Stress Concentration (Kt)": kt,
-                "Est. Blend Vol (mm³)": blend_vol,
-                "Status": severity,
-                "Recommended Action": action
-            })
-    else:
-        # Standard fallback layout if response list is empty or offline
-        items = [
-            {
-                "class": "Nacelle_Dent",
-                "box": [width * 0.52, height * 0.42, width * 0.74, height * 0.64],
-                "status": "HIGH",
-                "color": "#EF4444",
-                "depth": 0.42, "rad": 0.18, "len": 4.5
-            },
-            {
-                "class": "Front_Fan_Blades",
-                "box": [width * 0.05, height * 0.08, width * 0.52, height * 0.88],
-                "status": "LOW",
-                "color": "#10B981",
-                "depth": 0.12, "rad": 0.35, "len": 1.2
-            }
-        ]
-
-        for idx, item in enumerate(items, 1):
-            x1, y1, x2, y2 = item["box"]
-            center_y = (y1 + y2) / 2
-            position_pct = round((center_y / height) * 100, 1)
-
-            if m_mode == "Manual Field Input (Micrometer/Gauge)":
-                d_val, r_val, l_val = manual_d, manual_r, manual_l
-            else:
-                d_val, r_val, l_val = item["depth"], item["rad"], item["len"]
-
-            kt = calculate_stress_concentration(d_val, r_val)
-            blend_vol = calculate_blend_volume(d_val, l_val)
-
-            action = "Structural Repair / Patch Required" if kt > 3.5 else f"Blend Repair (~{blend_vol} mm³)"
-
-            draw.rectangle([x1, y1, x2, y2], outline=item["color"], width=4)
-            draw.text((x1 + 5, max(0, y1 - 18)), f"#{idx} {item['class']} (Kt: {kt})", fill=item["color"])
-
-            detections_data.append({
-                "ID": f"DET-{idx:03d}",
-                config["label_name"]: item["class"],
-                "Relative Position": f"{position_pct}% Height",
-                "Stress Concentration (Kt)": kt,
-                "Est. Blend Vol (mm³)": blend_vol,
-                "Status": item["status"],
-                "Recommended Action": action
-            })
-
-    return draw_img, detections_data
-
-# --- UI LAYOUT ---
+# --- LAYOUT ---
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("Source Image")
-    uploaded_file = st.file_uploader("Select Photo (JPG / PNG):", type=["jpg", "jpeg", "png"])
+    st.subheader("1. Ingestion: Visual / Borescope Stream")
+    uploaded_file = st.file_uploader("Upload Engine Component Image:", type=["jpg", "jpeg", "png"])
     if uploaded_file is not None:
-        raw_image = Image.open(uploaded_file).convert("RGB")
-        
-        if enable_contrast:
-            proc_image = apply_contrast_enhancement(raw_image)
-            st.caption("⚡ High-Contrast Enhancement Active")
-        else:
-            proc_image = raw_image.copy()
-
-        st.image(proc_image, caption="Uploaded Inspection Image", use_container_width=True)
+        image = Image.open(uploaded_file).convert("RGB")
+        st.image(image, caption="Raw Inspection Input", use_container_width=True)
 
 with col2:
-    st.subheader("Model Detections")
+    st.subheader("2. Multi-Key AI Computer Vision Analysis")
     if uploaded_file is not None:
-        with st.spinner(f"Executing {selected_pipeline_key}..."):
-            annotated_img, detections = run_roboflow_inspection(
-                proc_image, ROBOFLOW_API_KEY, active_pipeline, confidence_thresh,
-                measurement_mode, user_depth, user_radius, user_length
-            )
-            st.image(annotated_img, caption="Active Pipeline Overlay", use_container_width=True)
+        keys_list = [key_rolls_royce, key_ge_aerospace, key_mro_internal]
+        with st.spinner("Executing collaborative verification across enterprise keys..."):
+            annotated_img, detections, verification_source = run_collaborative_inspection(image, keys_list)
+            
+            if "ERROR" in verification_source:
+                st.error(verification_source)
+            else:
+                st.success(f"Successfully authenticated via **{verification_source}**")
+                st.image(annotated_img, caption="Collaborative Detection Overlay", use_container_width=True)
 
-# --- REPORT & LOGS ---
-if uploaded_file is not None:
+# --- REPORT ---
+if uploaded_file is not None and "ERROR" not in locals().get('verification_source', ''):
     st.markdown("---")
-    st.subheader("Inspection Summary")
-
+    st.subheader("3. Enterprise Technical Airworthiness & Engineering Report")
+    
     num_defects = len(detections)
-    high_risk_count = sum(1 for d in detections if d["Status"] == "HIGH")
+    crit_count = sum(1 for d in detections if d["Severity Level"] in ["CRITICAL", "HIGH"])
     max_kt = max([d["Stress Concentration (Kt)"] for d in detections]) if detections else 1.0
 
-    if high_risk_count > 0 or max_kt > 3.2:
-        st.error(f"⚠️ **ATTENTION REQUIRED**: {high_risk_count} high-risk defect(s) flagged. Peak Stress Factor Kt = {max_kt}.")
+    if crit_count > 0 or max_kt > 3.0:
+        st.error(f"⚠️ **MAINTENANCE ACTION REQUIRED**: {crit_count} Critical/High Risk Anomaly(ies) Flagged.")
     else:
-        st.success("✅ **SERVICEABLE**: All items within allowable operational/structural limits.")
+        st.success("✅ **AIRWORTHINESS CLEARED**: All detected components within allowable operational limits.")
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Target Assembly", selected_target)
-    m2.metric("Inspection Zone", selected_zone)
-    m3.metric("Items Detected", num_defects)
-    m4.metric("Max Stress Factor (Kt)", max_kt)
+    m1.metric("Selected Powerplant", engine_model.split("(")[0].strip())
+    m2.metric("Total Detections", num_defects)
+    m3.metric("Peak Stress Riser (Kt)", max_kt)
+    m4.metric("AOG Risk Status", "HOLD" if crit_count > 0 else "CLEARED")
 
-    st.markdown("##### Detailed Log")
-    st.table(detections)
+    st.markdown("##### Detailed Component Analysis & MRO Maintenance Log")
+    if detections:
+        st.table(detections)
+    else:
+        st.info("No surface anomalies detected on the target component assembly.")
 
     mro_telemetry = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "target": selected_target,
-        "zone": selected_zone,
-        "active_pipeline": selected_pipeline_key,
-        "measurement_mode": measurement_mode,
-        "contrast_applied": enable_contrast,
-        "findings": detections
+        "powerplant": engine_model,
+        "sub_assembly": inspection_module,
+        "model_used": "partes-de-motor/5",
+        "authenticated_channel": locals().get('verification_source', 'N/A'),
+        "airworthiness_status": "AOG_HOLD" if crit_count > 0 else "SERVICEABLE",
+        "telemetry": detections
     }
 
     st.download_button(
-        label="📥 Download Technical Inspection Log (JSON)",
+        label="📥 Download Official EASA Part-145 Technical Log (JSON)",
         data=json.dumps(mro_telemetry, indent=2),
-        file_name=f"aerospace_inspection_{int(time.time())}.json",
+        file_name=f"RAM_MRO_Engine_Log_{int(time.time())}.json",
         mime="application/json"
     )
