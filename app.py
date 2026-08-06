@@ -28,14 +28,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-header">✈️ AeroInspect AI: Thermodynamic & Stress Surface Validation</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Royal Air Maroc MRO Technical Zone | Automated Jet Engine Blade & Component Scanner</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Royal Air Maroc MRO Technical Zone | Precision Defect & Stress Calculation Engine</div>', unsafe_allow_html=True)
 
-# --- SIDEBAR CONFIGURATION (CLEANED) ---
+# --- SIDEBAR CONFIGURATION ---
 st.sidebar.image("https://img.icons8.com/color/96/airplane-tail.png", width=64)
-st.sidebar.title("Inspection Control")
+st.sidebar.title("Inspection Parameters")
 
 st.sidebar.markdown("---")
 st.sidebar.info("Model Active: **partes-de-motor/5**\nStatus: **Connected to Roboflow Cloud**")
+
+st.sidebar.markdown("### 📐 Precision Measurement Mode")
+use_manual_inputs = st.sidebar.checkbox("Override with Hand-Measured Values (Micrometer / Borescope Gauge)", value=True)
+
+if use_manual_inputs:
+    st.sidebar.markdown("Enter hangar-measured dimensions:")
+    manual_depth = st.sidebar.number_input("Defect Depth (mm):", min_value=0.01, max_value=10.0, value=0.50, step=0.05)
+    manual_radius = st.sidebar.number_input("Notch Root Radius (mm):", min_value=0.01, max_value=5.0, value=0.20, step=0.05)
+    manual_length = st.sidebar.number_input("Defect Length (mm):", min_value=0.1, max_value=50.0, value=3.00, step=0.5)
 
 # --- HARDCODED CREDENTIALS ---
 ROBOFLOW_API_KEY = "26JC1OEUbjS0rV3JZTxM"
@@ -45,7 +54,12 @@ MODEL_ID = "partes-de-motor/5"
 def calculate_stress_concentration(depth_mm, radius_mm):
     if radius_mm <= 0:
         return 3.0
+    # Neuber's / Isuzu approximation for stress concentration factor Kt of a notch/scratch
     return round(1.0 + 2.0 * math.sqrt(depth_mm / radius_mm), 2)
+
+def calculate_blend_volume(depth_mm, length_mm):
+    width_mm = depth_mm * 4.0
+    return round(0.5 * depth_mm * width_mm * length_mm, 2)
 
 def get_thermodynamic_impact(label, kt_value):
     label_lower = label.lower()
@@ -69,7 +83,7 @@ def get_thermodynamic_impact(label, kt_value):
         }
 
 # --- INFERENCE ENGINE ---
-def run_inspection(image):
+def run_inspection(image, manual_mode, m_depth, m_radius, m_length):
     draw_img = image.copy()
     draw = ImageDraw.Draw(draw_img)
     width, height = image.size
@@ -98,16 +112,24 @@ def run_inspection(image):
     for idx, pred in enumerate(raw_predictions, 1):
         x, y, w, h = pred["x"], pred["y"], pred["width"], pred["height"]
         label = pred["class"]
-        conf = pred["confidence"]
 
         x1, y1 = x - (w / 2), y - (h / 2)
         x2, y2 = x + (w / 2), y + (h / 2)
 
         span_pct = round((1.0 - (y / height)) * 100, 1)
-        estimated_depth = round(h * 0.002, 2)
-        estimated_radius = max(0.05, round(w * 0.001, 2))
-        
-        kt = calculate_stress_concentration(estimated_depth, estimated_radius)
+
+        # Use manual physical inputs if enabled, otherwise estimate from bounding box
+        if manual_mode:
+            est_depth = m_depth
+            est_radius = m_radius
+            est_length = m_length
+        else:
+            est_depth = round(h * 0.002, 2)
+            est_radius = max(0.05, round(w * 0.001, 2))
+            est_length = round(w * 0.02, 2)
+
+        kt = calculate_stress_concentration(est_depth, est_radius)
+        blend_vol = calculate_blend_volume(est_depth, est_length)
         thermo = get_thermodynamic_impact(label, kt)
         
         severity = "CRITICAL" if kt > 2.5 else ("HIGH" if kt > 1.8 else "MONITOR")
@@ -120,7 +142,10 @@ def run_inspection(image):
             "Defect ID": f"DEF-{idx:03d}",
             "Component Class": label.upper(),
             "Span Location": f"{span_pct}% Span",
+            "Measured Depth (mm)": est_depth,
+            "Root Radius (mm)": est_radius,
             "Stress Concentration (Kt)": kt,
+            "Blend Volume (mm³)": blend_vol,
             "Aerodynamic / Thermal Impact": thermo["Fluid & Thermal Impact"],
             "Cycle Efficiency Loss": thermo["Efficiency Loss"],
             "Thermodynamic Consequence": thermo["Thermodynamic Consequence"],
@@ -142,9 +167,9 @@ with col1:
 with col2:
     st.subheader("2. Computer Vision & Thermodynamic Analysis")
     if uploaded_file is not None:
-        with st.spinner("Analyzing gas-path component geometry and surface integrity..."):
-            annotated_img, detections = run_inspection(image)
-            st.success("Analysis complete via Roboflow Cloud Engine.")
+        with st.spinner("Processing optical scan and calculating stress concentration factors..."):
+            annotated_img, detections = run_inspection(image, use_manual_inputs, manual_depth, manual_radius, manual_length)
+            st.success("Analysis complete with precision engineering parameters.")
             st.image(annotated_img, caption="Detected Anomalies Overlay", use_container_width=True)
 
 # --- REPORT ---
@@ -164,7 +189,7 @@ if uploaded_file is not None:
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Active Model", "partes-de-motor/5")
     m2.metric("Total Anomalies", num_defects)
-    m3.metric("Max Stress Riser (Kt)", max_kt)
+    m3.metric("Peak Stress Riser (Kt)", max_kt)
     m4.metric("Engine Status", "HOLD" if crit_count > 0 else "SERVICEABLE")
 
     st.markdown("##### Detailed Component Defect & Thermodynamic Breakdown")
@@ -176,6 +201,7 @@ if uploaded_file is not None:
     report_data = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "model": "partes-de-motor/5",
+        "input_mode": "Manual Hangar Gauge Measurements" if use_manual_inputs else "AI Pixel Estimation",
         "airworthiness": "HOLD" if crit_count > 0 else "CLEARED",
         "anomalies": detections
     }
