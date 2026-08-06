@@ -58,19 +58,21 @@ def calculate_thermodynamic_profile(label, pr, t4, tamb):
         # Isentropic compression temperature exit: T3 = T2 * PR^((gamma-1)/gamma)
         t_exit = tamb * (pr ** ((gamma_air - 1.0) / gamma_air))
         delta_h = cp_air * (t_exit - tamb)
+        perf_status = "OPTIMAL" if pr < 45 else "HIGH THERMAL STRESS"
         return {
             "Station": "Station 2 -> 3 (Compression)",
             "Primary Parameter": f"Pressure Ratio: {pr}x",
             "Thermal Behavior": f"Polytropic compression increases core air temperature to ~{round(t_exit, 1)} K.",
             "Enthalpy Change": f"Δh = +{round(delta_h, 1)} kJ/kg",
-            "Performance Status": "OPTIMAL" if pr < 45 else, "HIGH THERMAL STRESS"
+            "Performance Status": perf_status
         }
     elif "combust" in label_lower:
+        q_in = cp_air * (t4 - 700)
         return {
             "Station": "Station 3 -> 4 (Combustion)",
             "Primary Parameter": f"Peak TIT: {t4} K",
             "Thermal Behavior": "Isobaric heat addition via fuel mass-flow injection into primary combustion zone.",
-            "Enthalpy Change": f"Peak Energy Release (Q_in ~ {round(cp_air * (t4 - 700), 1)} kJ/kg)",
+            "Enthalpy Change": f"Peak Energy Release (Q_in ~ {round(q_in, 1)} kJ/kg)",
             "Performance Status": "NOMINAL FLAME STABILITY"
         }
     elif "turbin" in label_lower:
@@ -79,7 +81,7 @@ def calculate_thermodynamic_profile(label, pr, t4, tamb):
             "Station": "Station 4 -> 5 (Expansion)",
             "Primary Parameter": f"Expansion Ratio (~{round(pr * 0.8, 1)}x)",
             "Thermal Behavior": f"Gas expansion extracts work to drive compressor, dropping exhaust gas to ~{round(t_exhaust, 1)} K.",
-            "Enthalpy Change": f"Work Extraction (W_out active)",
+            "Enthalpy Change": "Work Extraction (W_out active)",
             "Performance Status": "THERMAL EFFICIENCY NOMINAL"
         }
     else:
@@ -128,7 +130,7 @@ def run_thermodynamic_scan(image, pr, t4, tamb):
         span_pct = round((1.0 - (y / height)) * 100, 1)
         profile = calculate_thermodynamic_profile(label, pr, t4, tamb)
         
-        color = "#38BDF8" if "NOMINAL" in profile["Performance Status"] or "OPTIMAL" in profile["Performance Status"] else "#F59E0B"
+        color = "#38BDF8" if "NOMINAL" in profile["Performance Status"] or "OPTIMAL" in profile["Performance Status"] or "SERVICEABLE" in profile["Performance Status"] else "#F59E0B"
 
         draw.rectangle([x1, y1, x2, y2], outline=color, width=4)
         draw.text((x1 + 5, max(0, y1 - 15)), f"#{idx} {label.upper()}", fill=color)
